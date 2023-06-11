@@ -1,0 +1,49 @@
+{
+  "Actions": [
+    {
+      "Icon": "action",
+      "Name": "Fan",
+      "States": [
+        {
+          "Image": "icon"
+        }
+      ],
+      "Tooltip": "Toggle fan and control its speed",
+      "UUID": "com.xifansdplugin.myaction",
+      "Controllers":
+      [
+        "Encoder"
+      ],
+      "Encoder":
+      {
+        "TriggerDescription":
+        {
+          "Rotate" :  "Set Fan Speed",
+          "Touch" :  "Toggle Fan",
+          "Push" :  "Toggle Fan"
+        },
+        "layout": "$B1"
+      }
+    }
+  ],
+
+  "Category": "XiFan",
+  "CategoryIcon": "category",
+  "SDKVersion": 2,
+  "Author": "lespalt",
+  "CodePath": "XifanSDPlugin.exe",
+  "Description": "Controls Xiaomi Standing Fan 2",
+  "Name": "XiFan",
+  "Icon": "icon",
+  "Version": "1.0",
+  "OS": [
+    {
+        "Platform": "windows",
+        "MinimumVersion" : "10"
+    }
+  ],
+  "Software":
+    {
+        "MinimumVersion" : "6.0"
+    }
+}

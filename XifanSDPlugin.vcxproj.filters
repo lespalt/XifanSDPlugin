@@ -1,0 +1,99 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="StreamDeckSDK\ESDAction.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDConnectionManager.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDFilesystem.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDLocalizer.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDLogger.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDLoggerWindows.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDMain.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDPlugin.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDUtilities.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="StreamDeckSDK\ESDUtilitiesWindows.cpp">
+      <Filter>StreamDeckSDK</Filter>
+    </ClCompile>
+    <ClCompile Include="fanctrl.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="MyAction.h" />
+    <ClInclude Include="MyPlugin.h" />
+    <ClInclude Include="StreamDeckSDK\EPLJSONUtils.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDAction.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDActionWithExternalState.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDBasePlugin.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDConnectionManager.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDFilesystem.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDFormat.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDLocalizer.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDLogger.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDMain.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDPlugin.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDSDKDefines.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="StreamDeckSDK\ESDUtilities.h">
+      <Filter>StreamDeckSDK</Filter>
+    </ClInclude>
+    <ClInclude Include="nlohmann\json.hpp">
+      <Filter>nlohmann</Filter>
+    </ClInclude>
+    <ClInclude Include="plusaes.hpp" />
+    <ClInclude Include="md5.h" />
+    <ClInclude Include="fanctrl.h" />
+    <ClInclude Include="util.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="StreamDeckSDK">
+      <UniqueIdentifier>{164cf168-4071-4960-8f2f-1a057ca8a82e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="nlohmann">
+      <UniqueIdentifier>{0ba02c9f-efc1-463b-b9ad-4bcb4b277ad6}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="install.bat" />
+    <None Include="com.xifansdplugin.sdPlugin\manifest.json" />
+  </ItemGroup>
+</Project>
