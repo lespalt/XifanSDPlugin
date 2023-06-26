@@ -2,6 +2,7 @@
 #include "MyPlugin.h"
 #include <StreamDeckSDK/ESDMain.h>
 #include <Windows.h>
+#include <time.h>
 #include "fanctrl.h"
 #include "util.h"
 
@@ -15,7 +16,10 @@ void log( const char* msg )
         g_logfile = fopen( filename.c_str(), "w" );
     }
 
-    fprintf( g_logfile, "%s\n", msg );
+    time_t tim = time(0);
+    char timstr[64];
+    strftime( timstr, sizeof(timstr), "%F %T", localtime(&tim) );
+    fprintf( g_logfile, "[%s] %s\n", timstr, msg );
     fflush( g_logfile );
 }
 

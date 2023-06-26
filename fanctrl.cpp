@@ -52,8 +52,8 @@ struct AsyncCommand
 struct XiCtx
 {
     unsigned int                        devId = 0;
-    unsigned int                        timestamp = 0;
-    DWORD                               startticks = 0;
+    unsigned int                        lastHelloDeviceTimestamp = 0;
+    DWORD                               lastHelloLocalTimestampMs = 0;
     ByteVec                             token;
     int                                 cmdId = 0;
     SOCKET                              sock = INVALID_SOCKET;
@@ -144,7 +144,7 @@ static int recv( SOCKET sock, ByteVec& data )
 
 static ByteVec encodeXiPacket( const ByteVec& msg )
 {
-    DWORD deltaSecs = (GetTickCount() - ctx.startticks) / 1000;
+    DWORD deltaSecs = (GetTickCount() - ctx.lastHelloLocalTimestampMs) / 1000;
 
     ByteVec packet = concat( ByteVec(32), encrypt(msg,ctx.token) );
 
@@ -154,7 +154,7 @@ static ByteVec encodeXiPacket( const ByteVec& msg )
     hdr[2] = (unsigned char)(packet.size() >> 8);
     hdr[3] = (unsigned char)(packet.size() & 0xff);
     *((unsigned int*)&hdr[8]) = _byteswap_ulong( ctx.devId );
-    *((unsigned int*)&hdr[12]) = _byteswap_ulong( ctx.timestamp + (unsigned)deltaSecs );
+    *((unsigned int*)&hdr[12]) = _byteswap_ulong( ctx.lastHelloDeviceTimestamp + (unsigned)deltaSecs );
 
     memcpy( &packet[16], &ctx.token[0], 16 );
     ByteVec checksum = md5( packet );
@@ -300,12 +300,12 @@ static bool syncCmdHelloHandshake()
     if( recv( ctx.sock, received ) < 0 )
         return false;
 
-    ctx.startticks = GetTickCount();
-    ctx.devId      = _byteswap_ulong( *((unsigned int*)&received[8]) );
-    ctx.timestamp  = _byteswap_ulong( *((unsigned int*)&received[12]) );
+    ctx.lastHelloLocalTimestampMs = GetTickCount();
+    ctx.devId                     = _byteswap_ulong( *((unsigned int*)&received[8]) );
+    ctx.lastHelloDeviceTimestamp  = _byteswap_ulong( *((unsigned int*)&received[12]) );
 
     char s[512];
-    sprintf( s, "HELLO RSP: device 0x%08x, time 0x%08x", ctx.devId, ctx.timestamp );
+    sprintf( s, "HELLO RSP: device 0x%08x, time 0x%08x", ctx.devId, ctx.lastHelloDeviceTimestamp );
     ctx.log( s );
 
     return true;
@@ -347,7 +347,7 @@ static std::string syncCmdGetInfo()
 void fanInit( fanLogCb logCb )
 {
     ctx.log = logCb;
-    ctx.log( "\nBegin fan init..." );
+    ctx.log( "\n============================\nBegin fan init..." );
     
 
     // Read config file if it exists. Init it with some defaults if it doesn't.
@@ -414,6 +414,22 @@ void fanCleanup()
     closesocket(ctx.sock);
     WSACleanup();
     // guess we should also kill worker threads here, but whatever, we're exiting...
+}
+
+void fanResyncIfNeeded()
+{
+    // If more than some time has passed since we last sent a HELLO, do it again.
+    // I don't know what the fan's actual timeout is here, this is by trial-and-error.
+
+    DWORD msecSinceLastSync = GetTickCount() - ctx.lastHelloLocalTimestampMs;
+
+    if( msecSinceLastSync < 5 * 60 * 1000 )
+        return;
+
+    if( syncCmdHelloHandshake()==false )
+        ctx.log( "Fan re-sync failed." );
+    else
+        ctx.log( "Re-synced to fan." );
 }
 
 bool fanGetEnabled()

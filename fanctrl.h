@@ -29,6 +29,7 @@ typedef void (*fanLogCb)(const char* msg);
 
 void fanInit( fanLogCb logCb );
 void fanCleanup();
+void fanResyncIfNeeded();
 
 bool fanGetEnabled();
 void fanSetEnabled( bool enabled );

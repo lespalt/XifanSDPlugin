@@ -21,11 +21,14 @@ public:
 
     virtual void WillAppear(const nlohmann::json& settings) override
     {
+        fanResyncIfNeeded();
         updateSpeedAndPower();
     }
 
     virtual void DialPress(const nlohmann::json& settings) override
     {
+        fanResyncIfNeeded();
+
         m_fanEnabled = !m_fanEnabled;
         fanSetEnabled( m_fanEnabled );
 
@@ -36,6 +39,8 @@ public:
 
     virtual void DialRotate( const nlohmann::json& settings, int ticks, bool pressed ) override
     {
+        fanResyncIfNeeded();
+
         int granularity = 5;
 
         m_fanSpeed = (( m_fanSpeed + ticks*granularity ) / granularity) * granularity;
