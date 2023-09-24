@@ -16,6 +16,7 @@ public:
         const std::string& context)
         : ESDAction(esd_connection,action,context)
     {
+        fanResyncIfNeeded();
         updateSpeedAndPower();
     }
 

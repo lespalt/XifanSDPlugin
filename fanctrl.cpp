@@ -41,13 +41,24 @@ SOFTWARE.
 
 #pragma comment(lib, "Ws2_32.lib")
 
+static const int RetError = -1;
+static const int RetRecvTimeout = -2;
+
 struct AsyncCommand
 {
     enum Type { CMD_SET_POWER, CMD_SET_SPEED };
 
     Type    type   = Type(0);
     int     value  = 0;
+    int     id     = -1;
+    DWORD   timestamp = 0;
 };
+
+inline bool operator<( const AsyncCommand& lhs, const AsyncCommand& rhs )
+{
+    return lhs.id < rhs.id;
+}
+
 
 struct XiCtx
 {
@@ -62,7 +73,7 @@ struct XiCtx
     std::deque<AsyncCommand>            asyncSendQueue;
     std::counting_semaphore<INT_MAX>    asyncSendQueueSema = std::counting_semaphore<INT_MAX>( 0 );  // represents number of elements in async send queue
     std::counting_semaphore<INT_MAX>    asyncInFlightSema = std::counting_semaphore<INT_MAX>( 0 );   // represents number of outstanding async requests
-    std::set<int>                       asyncInFlightCmds;
+    std::set<AsyncCommand>              asyncInFlightCmds;
     fanLogCb                            log = nullptr;
 };
 
@@ -90,7 +101,7 @@ static ByteVec decrypt( const ByteVec& msg, const ByteVec& token )
         decrypted.data(), (int)decrypted.size(), &paddedSize );
 
     if( err != plusaes::kErrorOk )
-        printf("ERROR: decryption failed, error %d\n", (int)err );
+        ctx.log("ERROR: decryption failed, error %d", (int)err );
 
     decrypted.resize( decrypted.size() - paddedSize );
     return decrypted;
@@ -110,7 +121,7 @@ static ByteVec encrypt( const ByteVec& msg, const ByteVec& token )
         encrypted.data(), (int)encrypted.size(), true );
     
     if( err != plusaes::kErrorOk )
-        printf("ERROR: encryption failed, error %d\n", (int)err );
+        ctx.log("ERROR: encryption failed, error %d", (int)err );
 
     return encrypted;
 }
@@ -120,23 +131,37 @@ static int send( SOCKET sock, const sockaddr_in& addr, const ByteVec& data )
     int n = sendto( sock, (char*)data.data(), (int)data.size(), 0, (SOCKADDR*)&addr, (int)sizeof(addr) );
     if( n == SOCKET_ERROR || n != (int)data.size() )
     {
-        printf( "ERROR: sendto() failed or incomplete.\n" );
-        return -1;
+        ctx.log( "ERROR: sendto() failed or incomplete." );
+        return RetError;
     }
     return n;
 }
 
-static int recv( SOCKET sock, ByteVec& data )
+static int recv( SOCKET sock, ByteVec& data, int timeoutMsec )
 {
-    int optsize = 4, maxmsgsize;
+    int optsize = (int)sizeof(int);
+    int maxmsgsize = 0;
     getsockopt( sock, SOL_SOCKET, SO_MAX_MSG_SIZE, (char*)&maxmsgsize, &optsize );
+
+    DWORD timeoutSockopt = (DWORD)timeoutMsec;
+    int err = setsockopt( sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeoutSockopt, sizeof(timeoutSockopt) );
+    if( err )
+    {
+        ctx.log( "ERROR: setsockopt() failed, error %d", err );
+        return RetError;
+    }
 
     data.resize( maxmsgsize );
     int n = recv( sock, (char*)data.data(), (int)data.size(), 0 );
     if( n == SOCKET_ERROR )
     {
-        printf( "ERROR: recv() failed.\n" );
-        return -1;
+        int err = WSAGetLastError();
+
+        if( err == WSAETIMEDOUT )
+            return RetRecvTimeout;
+
+        ctx.log( "ERROR: recv() failed, error: %d", err );
+        return RetError;
     }
     data.resize( n );
     return n;
@@ -214,18 +239,19 @@ static void asyncSendWorker()
 
             std::string cmdstr;
 
-            const int id = ++ctx.cmdId;
+            cmd.id = ++ctx.cmdId;
+            cmd.timestamp = GetTickCount();
 
             if( cmd.type == AsyncCommand::CMD_SET_POWER )
-                cmdstr = R"({"id": )" + std::to_string(id) + R"(, "method": "set_properties", "params": [{"did": "power", "siid": 2, "piid": 1, "value": )" + (cmd.value?"true":"false") + std::string("}]}");
+                cmdstr = R"({"id": )" + std::to_string(cmd.id) + R"(, "method": "set_properties", "params": [{"did": "power", "siid": 2, "piid": 1, "value": )" + (cmd.value?"true":"false") + std::string("}]}");
             else if( cmd.type == AsyncCommand::CMD_SET_SPEED )
-                cmdstr = R"({"id": )" + std::to_string(id) + R"(, "method": "set_properties", "params": [{"did": "fan_speed", "siid": 2, "piid": 10, "value": )" + std::to_string(cmd.value) + "}]}";
+                cmdstr = R"({"id": )" + std::to_string(cmd.id) + R"(, "method": "set_properties", "params": [{"did": "fan_speed", "siid": 2, "piid": 10, "value": )" + std::to_string(cmd.value) + "}]}";
 
             ctx.log( ("ASYNC CMD: " + cmdstr).c_str() );
             ByteVec packet = encodeXiPacket( cstr2bytes(cmdstr) );
             send( ctx.sock, ctx.sockaddr, packet );
 
-            ctx.asyncInFlightCmds.insert( id );
+            ctx.asyncInFlightCmds.insert( cmd );
             ctx.asyncInFlightSema.release();
         }
 
@@ -246,27 +272,53 @@ static void asyncRecvWorker()
 
     while( true )
     {
-        // recv() will block until we receive something. We use the extra semaphore here to avoid
+        // recv() will block until we receive something or time out. We use the extra semaphore here to avoid
         // receiving data on the async path when the request really came from a sync command.
         ctx.asyncInFlightSema.acquire();
 
         ByteVec received;
-        recv( ctx.sock, received );
+        int ret = recv( ctx.sock, received, 1000 );
 
-        lock.lock();
+        if( ret > 0 )  // all good, got some reply
+        {
+            lock.lock();
 
-        ByteVec decoded = decodeXiPacket( received );
-        std::string str = bytes2str( decoded );
-        ctx.log( ("ASYNC RSP: " + str).c_str());
+            ByteVec decoded = decodeXiPacket( received );
+            std::string str = bytes2str( decoded );
+            ctx.log( ("ASYNC RSP: " + str).c_str());
 
-        // We track cmd IDs here. This isn't really needed, but if one day we want to implement
-        // retries on "busy" answers then this is where we'd start extending things.
-        nlohmann::json json = nlohmann::json::parse(str);
-        int recvId = json["id"];
-        assert( ctx.asyncInFlightCmds.find(recvId) != ctx.asyncInFlightCmds.end() );
-        ctx.asyncInFlightCmds.erase( recvId );
+            // Find the command by its id and remove it from the list of commands in flight.
+            nlohmann::json json = nlohmann::json::parse(str);
+            int recvId = json["id"];
+            auto it = std::find_if( ctx.asyncInFlightCmds.begin(), ctx.asyncInFlightCmds.end(), [&](const AsyncCommand& other){ return other.id == recvId; } );
+            
+            // Not finding the command in the in flight list is a valid situation: we may have already removed it from
+            // the list due to a timeout, but then for some reason received it much later after all. Should be very rare.
+            if( it == ctx.asyncInFlightCmds.end() )
+                ctx.log( "WARNING: Received async response after already giving up the wait!" );
 
-        lock.unlock();
+            if( it != ctx.asyncInFlightCmds.end() )
+                ctx.asyncInFlightCmds.erase( it );
+
+            lock.unlock();
+        }
+        else if( ret == RetRecvTimeout )
+        {
+            lock.lock();
+
+            ctx.log( "Async recv timed out, removing stale requests from in-flight list");
+
+            // Remove all commands from the list of in-flight commands from the list if a certain
+            // (generous) time threshold has passed - we just give up on them.
+            DWORD curTimestamp = GetTickCount();
+            std::erase_if( ctx.asyncInFlightCmds, [&](const AsyncCommand& cmd){ return curTimestamp-cmd.timestamp > 2000; } );
+
+            lock.unlock();
+        }
+        else
+        {
+            // some recv error, can't do much here. We've already logged it further down the stack.
+        }
     }
 }
 
@@ -295,18 +347,55 @@ static bool syncCmdHelloHandshake()
     ByteVec received;
     ByteVec hello = hexstr2bytes( "21310020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff" );    
 
-    if( send( ctx.sock, ctx.sockaddr, hello ) < 0 )
+    const int MaxRetries = 3;
+    bool success = false;
+    for( int retry=0; retry<MaxRetries; ++retry )
+    {
+        if( send( ctx.sock, ctx.sockaddr, hello ) < 0 )
+        {
+            ctx.log( "Handshake failed (send error)" );
+            break;
+        }
+
+        int ret = recv( ctx.sock, received, 2000 );
+        if( ret == RetError )
+        {
+            ctx.log( "Handshake failed (recv error)" );
+            break;
+        }
+        else if( ret == RetRecvTimeout )
+        {
+            ctx.log( "Handshake recv timed out. Retrying with new socket..." );
+            
+            // Sometimes, the fan will just stop answering hello packets, especially after longer periods
+            // of idle time. Let's try getting a new socket. Although from very limited testing this doesn't
+            // actually seem to solve the (whole?) issue, it also doesn't hurt.
+            if( closesocket( ctx.sock ) )
+                ctx.log( "closesocket() failed, error: %d", WSAGetLastError() );
+
+            ctx.sock = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+            if( ctx.sock == INVALID_SOCKET )
+                ctx.log( "socket() failed, error: %d", WSAGetLastError() );
+        }
+        else
+        {
+            success = true;
+            break;
+        }
+    }
+
+    if( !success )
+    {
+        // We'll just soldier on after this, chances are the fan will accept our next regular command just fine.
+        ctx.log( "No successful handshake. Good luck...", MaxRetries );
         return false;
-    if( recv( ctx.sock, received ) < 0 )
-        return false;
+    }
 
     ctx.lastHelloLocalTimestampMs = GetTickCount();
     ctx.devId                     = _byteswap_ulong( *((unsigned int*)&received[8]) );
     ctx.lastHelloDeviceTimestamp  = _byteswap_ulong( *((unsigned int*)&received[12]) );
 
-    char s[512];
-    sprintf( s, "HELLO RSP: device 0x%08x, time 0x%08x", ctx.devId, ctx.lastHelloDeviceTimestamp );
-    ctx.log( s );
+    ctx.log( "HELLO RSP: device 0x%08x, time 0x%08x", ctx.devId, ctx.lastHelloDeviceTimestamp );
 
     return true;
 }
@@ -322,13 +411,19 @@ static std::string syncCmdExecute( const std::string& cmd )
     ByteVec packet = encodeXiPacket( cstr2bytes(cmd) );
 
     send( ctx.sock, ctx.sockaddr, packet );
-    recv( ctx.sock, received );
+    if( recv( ctx.sock, received, 2000 ) == RetRecvTimeout )
+    {
+        ctx.log( "SYNC CMD timed out, skipping." );
+        return "";
+    }
+    else
+    {
+        ByteVec decoded = decodeXiPacket( received );
+        std::string str = bytes2str( decoded );
 
-    ByteVec decoded = decodeXiPacket( received );
-    std::string str = bytes2str( decoded );
-
-    ctx.log( ("SYNC RSP: " + str).c_str() );
-    return str;
+        ctx.log( ("SYNC RSP: " + str).c_str() );
+        return str;
+    }
 }
 
 static std::string syncCmdGetInfo()
@@ -377,9 +472,7 @@ void fanInit( fanLogCb logCb )
     ctx.sockaddr.sin_addr.s_addr = inet_addr(ip);
     ctx.sockaddr.sin_port = htons(port);
 
-    char s[512];
-    snprintf(s,sizeof(s),"Using IP %s, port %d, token %s", ip, port, token);
-    ctx.log( s );
+    ctx.log( "Using IP %s, port %d, token %s", ip, port, token );
     
     WSADATA wsaData;
     int err = 0;
@@ -388,6 +481,7 @@ void fanInit( fanLogCb logCb )
         ctx.log("ERROR: Winsock init failed");
         return;
     }
+    ctx.log( "WSAStartup: v%d.%d, status: %s, desc: %s", (wsaData.wVersion&0xff00)>>8, wsaData.wVersion&0xff, wsaData.szSystemStatus, wsaData.szDescription );
     
     ctx.token = hexstr2bytes( token );
     ctx.sock  = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
@@ -419,12 +513,14 @@ void fanCleanup()
 void fanResyncIfNeeded()
 {
     // If more than some time has passed since we last sent a HELLO, do it again.
-    // I don't know what the fan's actual timeout is here, this is by trial-and-error.
+    // I don't know what the fan's actual timeout is here, but it doesn't really hurt to do this.
 
     DWORD msecSinceLastSync = GetTickCount() - ctx.lastHelloLocalTimestampMs;
 
-    if( msecSinceLastSync < 5 * 60 * 1000 )
+    if( msecSinceLastSync < 5000 )
         return;
+
+    ctx.log( "Attempting fan re-sync..." );
 
     if( syncCmdHelloHandshake()==false )
         ctx.log( "Fan re-sync failed." );

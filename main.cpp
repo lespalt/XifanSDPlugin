@@ -8,8 +8,14 @@
 
 static FILE* g_logfile = 0;
 
-void log( const char* msg )
+void log( const char* format, ... )
 {
+    char s[512];
+    va_list argptr;
+    va_start(argptr, format);
+    vsnprintf( s, sizeof(s), format, argptr);
+    va_end(argptr);
+
     if( !g_logfile )
     {
         std::string filename = getExeFileLocation() + "\\fanlog.txt";
@@ -19,7 +25,7 @@ void log( const char* msg )
     time_t tim = time(0);
     char timstr[64];
     strftime( timstr, sizeof(timstr), "%F %T", localtime(&tim) );
-    fprintf( g_logfile, "[%s] %s\n", timstr, msg );
+    fprintf( g_logfile, "[%s] %s\n", timstr, s );
     fflush( g_logfile );
 }
 

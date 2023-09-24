@@ -25,7 +25,7 @@ SOFTWARE.
 
 #pragma once
 
-typedef void (*fanLogCb)(const char* msg);
+typedef void (*fanLogCb)(const char* format, ...);
 
 void fanInit( fanLogCb logCb );
 void fanCleanup();
